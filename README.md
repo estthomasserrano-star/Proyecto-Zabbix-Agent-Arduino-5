@@ -4,7 +4,7 @@ Se desarrollará un proyecto que integra una placa Arduino Uno junto con un mód
 Este sistema permitirá la recolección y envío de datos en tiempo real, facilitando la supervisión del estado de las variables medidas y la generación de alertas automáticas ante cualquier condición anómala detectada.
 Correcta ejecuccion y monitoreo de alertas correctamente 
  en este proyecto tendremos los siguientes items 
-Materials](#materials)
+
 * Materiales](#materiales)
 * [Esquematico](#Esquematico)
    sensores Implementados
