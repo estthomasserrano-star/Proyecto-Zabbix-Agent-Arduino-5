@@ -1,0 +1,168 @@
+/*
+ * CLIENTE HTTP ACTIVO PARA ENVÍO DE DATOS DE SENSORES
+ *
+ * Este sketch lee múltiples sensores (DHT11, DS18B20, PIR) y envía
+ * los datos como una solicitud HTTP GET a un servidor "collector"
+ * con la IP 172.28.160.10 en el puerto 80 (HTTP estándar).
+ */
+
+#include <SPI.h>
+#include <Ethernet.h>
+#include <DHT.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// ----------------------------------------------------------------------------
+// 1. DEFINICIÓN DE PINES Y SENSORES
+// ----------------------------------------------------------------------------
+#define LED_PIN 13       // LED para indicar movimiento (Salida)
+#define DHT_PIN 6        // Sensor DHT11 (Entrada)
+#define ONE_WIRE_BUS 7   // Sensor DS18B20 (Entrada)
+#define PIR_PIN 10       // Sensor PIR (Entrada)
+#define DHT_TYPE DHT11   // Tipo de sensor DHT
+
+DHT dht(DHT_PIN, DHT_TYPE);
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+// ----------------------------------------------------------------------------
+// 2. CONFIGURACIÓN DE RED
+// ----------------------------------------------------------------------------
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0x01 }; // Dirección MAC
+IPAddress ip(172,28,160,1);                      // IP fija del Arduino
+IPAddress gateway(172,28,160,254);               // Puerta de enlace
+IPAddress subnet(255,255,255,0);                 // Máscara de subred
+
+// IP del servidor/collector que recibirá la solicitud HTTP GET
+IPAddress collectorIP(172,28,160,10);
+const uint16_t collectorPort = 80;
+
+EthernetClient client;
+
+// ----------------------------------------------------------------------------
+// 3. VARIABLES
+// ----------------------------------------------------------------------------
+// Almacenan los valores leídos de los sensores
+float humidity_dht = 0.00;
+float temperature_dht = 0.00;
+float temperature_ds = 0.00;
+int pir_status = 0; // 0 o 1
+
+// ----------------------------------------------------------------------------
+// 4. SETUP
+// ----------------------------------------------------------------------------
+void setup() {
+  Serial.begin(9600);
+  Serial.println("Iniciando Cliente HTTP y Sensores...");
+
+  // Configuración de pines y sensores
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(PIR_PIN, INPUT);
+  dht.begin();
+  sensors.begin();
+
+  // Inicializa Ethernet con IP estática
+  // Nota: La forma más segura de usar IP estática es especificar todos los parámetros
+  Ethernet.begin(mac, ip, gateway, gateway, subnet);
+  
+  delay(1000);
+  Serial.print("IP Asignada: ");
+  Serial.println(Ethernet.localIP());
+}
+
+// ----------------------------------------------------------------------------
+// 5. LOOP
+// ----------------------------------------------------------------------------
+void loop() {
+  // --- 5.1. Lectura de Sensores ---
+
+  // 1. DHT11 (Humedad y Temperatura Ambiental)
+  humidity_dht = dht.readHumidity();
+  temperature_dht = dht.readTemperature();
+
+  // 2. DS18B20 (Temperatura de Sonda)
+  sensors.requestTemperatures();
+  temperature_ds = sensors.getTempCByIndex(0);
+
+  // 3. PIR (Movimiento) y control de LED
+  pir_status = digitalRead(PIR_PIN);
+  digitalWrite(LED_PIN, pir_status); // LED ON si hay movimiento (HIGH)
+
+  // --- 5.2. Formateo, Manejo de Errores y Debugging ---
+
+  // *** DEBUGGING: Muestra los valores crudos en el Serial Monitor ***
+  Serial.println("--- Lectura de Sensores ---");
+
+  // DHT11
+  if (isnan(humidity_dht) || isnan(temperature_dht)) {
+    Serial.println("!!! ERROR DHT11: Fallo al leer temperatura/humedad. Revisar cableado.");
+  } else {
+    Serial.print("DHT11 - Temperatura: "); Serial.print(temperature_dht); Serial.print(" °C | Humedad: "); Serial.print(humidity_dht); Serial.println(" %");
+  }
+  
+  // DS18B20
+  if (temperature_ds == DEVICE_DISCONNECTED_C) {
+    Serial.println("!!! ERROR DS18B20: Sensor desconectado o error de lectura.");
+  } else {
+    Serial.print("DS18B20 - Temperatura: "); Serial.print(temperature_ds); Serial.println(" °C");
+  }
+
+  // PIR
+  Serial.print("PIR - Estado: "); Serial.println(pir_status);
+
+
+  // Formatea valores float en strings (manejando errores con "nan")
+  // Usamos String(value, 1) para un decimal de precisión
+  String sHum = isnan(humidity_dht) ? "nan" : String(humidity_dht, 1);
+  String sTemp = isnan(temperature_dht) ? "nan" : String(temperature_dht, 1);
+  
+  // DEVICE_DISCONNECTED_C es un valor especial de DallasTemperature (-127)
+  String sDS = (temperature_ds != DEVICE_DISCONNECTED_C) ? String(temperature_ds, 1) : String("nan");
+  
+  // El PIR ya es un int (0 o 1)
+  String sPIR = String(pir_status);
+
+  // --- 5.3. Envío al collector por HTTP GET ---
+
+  Serial.println("Intentando conectar con collector...");
+
+  if (client.connect(collectorIP, collectorPort)) {
+    Serial.println("Conectado con collector.");
+    
+    // Construcción del path de la URL completa:
+    // /recv?host=arduino01&hum=...&temp=...&t_ds=...&pir=...
+    String url = "/recv?host=arduino01";
+    url += "&hum=" + sHum;     // Humedad ambiental (DHT11)
+    url += "&temp=" + sTemp;   // Temperatura ambiental (DHT11)
+    url += "&t_ds=" + sDS;     // Temperatura de sonda (DS18B20)
+    url += "&pir=" + sPIR;     // Estado PIR (1 o 0)
+
+    // Envío de la solicitud HTTP GET
+    client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+                 "Host: " + String(collectorIP) + "\r\n" +
+                 "Connection: close\r\n\r\n");
+                 
+    Serial.println("Datos enviados (URL):");
+    Serial.println(url);
+
+    // Opcional: Leer respuesta del servidor (máximo 1.5 segundos)
+    unsigned long timeout = millis();
+    while (client.connected() && millis() - timeout < 1500) {
+      while (client.available()) {
+        char c = client.read();
+        // Serial.write(c); // Descomenta para ver la respuesta completa del servidor
+      }
+    }
+    client.stop(); // Cerrar la conexión
+    Serial.println("Conexión con collector cerrada.");
+
+  } else {
+    Serial.println("Fallo al conectar con collector.");
+  }
+
+  // --- 5.4. Comportamiento Local y Retardo ---
+
+  Serial.println("---------------------------------");
+  // Esperar 2 segundos antes de la próxima lectura y envío
+  delay(2000); 
+}
