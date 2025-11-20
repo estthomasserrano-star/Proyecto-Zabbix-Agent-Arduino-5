@@ -6,7 +6,7 @@ Correcta ejecuccion y monitoreo de alertas correctamente
  en este proyecto tendremos los siguientes items 
 
 * Materiales](#materiales)
-* [Esquematico](#)
+* [Esquematico](#AgenteZabbixActivo.jpeg)
    sensores Implementados
 * [DHT11](#dht11)
  * [DS18b20](#ds18b20)
