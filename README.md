@@ -5,7 +5,7 @@ Este sistema permitirá la recolección y envío de datos en tiempo real, facili
 Correcta ejecuccion y monitoreo de alertas correctamente 
  en este proyecto tendremos los siguientes items 
 
-* Materiales](#materiales)
+* Materiales](#Esquematico Tinkercard.png)
 * [Esquematico](#Esquematico)
    sensores Implementados
 * [DHT11](#dht11)
